@@ -7,6 +7,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
+import ssl
+import urllib.request
+
+# Fix SSL certificate issue on macOS
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Load and preprocess CIFAR-10 dataset
 def load_and_preprocess_data():
@@ -29,23 +34,23 @@ def create_cnn_model(input_shape=(32, 32, 3), num_classes=10, activation='relu')
     """Create a robust CNN model for CIFAR-10 classification"""
     model = keras.Sequential([
         # First Convolutional Block
-        layers.Conv2D(32, (3, 3), activation=activation, input_shape=input_shape),
+        layers.Conv2D(32, (3, 3), activation=activation, input_shape=input_shape, padding='same'),
         layers.BatchNormalization(),
-        layers.Conv2D(32, (3, 3), activation=activation),
+        layers.Conv2D(32, (3, 3), activation=activation, padding='same'),
         layers.MaxPooling2D((2, 2)),
         layers.Dropout(0.25),
         
         # Second Convolutional Block
-        layers.Conv2D(64, (3, 3), activation=activation),
+        layers.Conv2D(64, (3, 3), activation=activation, padding='same'),
         layers.BatchNormalization(),
-        layers.Conv2D(64, (3, 3), activation=activation),
+        layers.Conv2D(64, (3, 3), activation=activation, padding='same'),
         layers.MaxPooling2D((2, 2)),
         layers.Dropout(0.25),
         
         # Third Convolutional Block
-        layers.Conv2D(128, (3, 3), activation=activation),
+        layers.Conv2D(128, (3, 3), activation=activation, padding='same'),
         layers.BatchNormalization(),
-        layers.Conv2D(128, (3, 3), activation=activation),
+        layers.Conv2D(128, (3, 3), activation=activation, padding='same'),
         layers.MaxPooling2D((2, 2)),
         layers.Dropout(0.25),
         
