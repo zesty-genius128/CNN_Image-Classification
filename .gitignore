@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 ml_env/
+ml_env_gpu/
 venv/
 env/
 
