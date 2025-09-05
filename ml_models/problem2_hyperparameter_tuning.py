@@ -8,6 +8,10 @@ from datetime import datetime
 import itertools
 from sklearn.metrics import precision_score, recall_score, f1_score
 import json
+import ssl
+
+# Fix SSL certificate issue on macOS
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Import the model creation function from Problem 1
 # (Assuming the previous code is in a module called cnn_model)
@@ -15,9 +19,19 @@ import json
 class HyperparameterTuner:
     def __init__(self, mongo_uri="mongodb://localhost:27017/", db_name="ml_experiments"):
         """Initialize hyperparameter tuner with MongoDB connection"""
-        self.client = pymongo.MongoClient(mongo_uri)
-        self.db = self.client[db_name]
-        self.collection = self.db["CNN_HyperParameter_Tuning"]
+        try:
+            self.client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            # Test the connection
+            self.client.server_info()
+            self.db = self.client[db_name]
+            self.collection = self.db["CNN_HyperParameter_Tuning"]
+            self.mongo_available = True
+            print("✅ Connected to MongoDB for experiment tracking")
+        except (pymongo.errors.ServerSelectionTimeoutError, pymongo.errors.ConnectionFailure):
+            print("⚠️  MongoDB not available - results will be stored in memory only")
+            print("   Install & start MongoDB to persist hyperparameter results")
+            self.mongo_available = False
+            self.results_memory = []
         
         # Hyperparameter grid
         self.param_grid = {
@@ -31,23 +45,23 @@ class HyperparameterTuner:
         """Create CNN model with specified activation function"""
         model = keras.Sequential([
             # First Convolutional Block
-            keras.layers.Conv2D(32, (3, 3), activation=activation, input_shape=(32, 32, 3)),
+            keras.layers.Conv2D(32, (3, 3), activation=activation, input_shape=(32, 32, 3), padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Conv2D(32, (3, 3), activation=activation),
+            keras.layers.Conv2D(32, (3, 3), activation=activation, padding='same'),
             keras.layers.MaxPooling2D((2, 2)),
             keras.layers.Dropout(0.25),
             
             # Second Convolutional Block
-            keras.layers.Conv2D(64, (3, 3), activation=activation),
+            keras.layers.Conv2D(64, (3, 3), activation=activation, padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Conv2D(64, (3, 3), activation=activation),
+            keras.layers.Conv2D(64, (3, 3), activation=activation, padding='same'),
             keras.layers.MaxPooling2D((2, 2)),
             keras.layers.Dropout(0.25),
             
             # Third Convolutional Block
-            keras.layers.Conv2D(128, (3, 3), activation=activation),
+            keras.layers.Conv2D(128, (3, 3), activation=activation, padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Conv2D(128, (3, 3), activation=activation),
+            keras.layers.Conv2D(128, (3, 3), activation=activation, padding='same'),
             keras.layers.MaxPooling2D((2, 2)),
             keras.layers.Dropout(0.25),
             
@@ -153,7 +167,7 @@ class HyperparameterTuner:
         return param_combinations
     
     def save_to_mongodb(self, params, metrics, experiment_id):
-        """Save experiment results to MongoDB"""
+        """Save experiment results to MongoDB or memory"""
         document = {
             'experiment_id': experiment_id,
             'timestamp': datetime.now(),
@@ -162,8 +176,12 @@ class HyperparameterTuner:
             'status': 'completed'
         }
         
-        self.collection.insert_one(document)
-        print(f"Saved experiment {experiment_id} to MongoDB")
+        if self.mongo_available:
+            self.collection.insert_one(document)
+            print(f"✅ Saved experiment {experiment_id} to MongoDB")
+        else:
+            self.results_memory.append(document)
+            print(f"💾 Saved experiment {experiment_id} to memory")
     
     def run_hyperparameter_tuning(self):
         """Run complete hyperparameter tuning process"""
@@ -210,18 +228,30 @@ class HyperparameterTuner:
         return results, best_params, best_accuracy
     
     def get_best_hyperparameters(self):
-        """Retrieve best hyperparameters from MongoDB"""
-        # Find document with highest accuracy
-        best_result = self.collection.find().sort("metrics.accuracy", -1).limit(1)
-        
-        for result in best_result:
-            return result['hyperparameters'], result['metrics']
-        
-        return None, None
+        """Retrieve best hyperparameters from MongoDB or memory"""
+        if self.mongo_available:
+            # Find document with highest accuracy
+            best_result = self.collection.find().sort("metrics.accuracy", -1).limit(1)
+            
+            for result in best_result:
+                return result['hyperparameters'], result['metrics']
+            
+            return None, None
+        else:
+            # Find best from memory
+            if not self.results_memory:
+                return None, None
+            
+            best_result = max(self.results_memory, key=lambda x: x['metrics']['accuracy'])
+            return best_result['hyperparameters'], best_result['metrics']
     
     def display_results_summary(self):
         """Display summary of all experiments"""
-        results = list(self.collection.find().sort("metrics.accuracy", -1))
+        if self.mongo_available:
+            results = list(self.collection.find().sort("metrics.accuracy", -1))
+        else:
+            # Sort memory results by accuracy
+            results = sorted(self.results_memory, key=lambda x: x['metrics']['accuracy'], reverse=True)
         
         print("\n" + "="*80)
         print("HYPERPARAMETER TUNING RESULTS SUMMARY")

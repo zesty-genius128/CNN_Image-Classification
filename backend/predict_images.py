@@ -145,7 +145,9 @@ def main():
         predictions = []
         
         for image_info in images:
-            image_path = os.path.join('uploads', image_info['filename'])
+            # Construct the correct path from the backend directory
+            backend_dir = os.path.dirname(os.path.abspath(__file__))
+            image_path = os.path.join(backend_dir, 'uploads', image_info['filename'])
             
             if not os.path.exists(image_path):
                 predictions.append({

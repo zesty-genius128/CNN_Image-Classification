@@ -8,17 +8,22 @@ const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// MongoDB connection
+// MongoDB connection (with fallback)
 mongoose.connect('mongodb://localhost:27017/image_classification', {
     useNewUrlParser: true,
-    useUnifiedTopology: true
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000 // Timeout after 5s instead of 30s
+}).catch(err => {
+    console.log('MongoDB not available, using in-memory storage for predictions');
+    console.log('Install MongoDB to persist data: brew install mongodb-community');
+    mongoAvailable = false;
 });
 
 // Schema for storing image predictions
@@ -31,6 +36,10 @@ const ImagePredictionSchema = new mongoose.Schema({
 });
 
 const ImagePrediction = mongoose.model('ImagePrediction', ImagePredictionSchema);
+
+// In-memory storage fallback
+let inMemoryPredictions = [];
+let mongoAvailable = true;
 
 // Multer configuration for file upload
 const storage = multer.diskStorage({
@@ -134,18 +143,31 @@ app.post('/api/predict', async (req, res) => {
         // Create a Python script call to use the trained model
         const predictions = await predictImages(images);
         
-        // Save predictions to database
-        const savedPredictions = await Promise.all(
-            predictions.map(async (pred) => {
-                const imagePred = new ImagePrediction({
+        // Save predictions to database or memory
+        if (mongoAvailable) {
+            const savedPredictions = await Promise.all(
+                predictions.map(async (pred) => {
+                    const imagePred = new ImagePrediction({
+                        filename: pred.filename,
+                        originalName: pred.originalName,
+                        predictedClass: pred.predictedClass,
+                        confidence: pred.confidence
+                    });
+                    return await imagePred.save();
+                })
+            );
+        } else {
+            // Store in memory
+            predictions.forEach(pred => {
+                inMemoryPredictions.push({
                     filename: pred.filename,
                     originalName: pred.originalName,
                     predictedClass: pred.predictedClass,
-                    confidence: pred.confidence
+                    confidence: pred.confidence,
+                    timestamp: new Date()
                 });
-                return await imagePred.save();
-            })
-        );
+            });
+        }
 
         res.json({
             message: 'Predictions completed',
@@ -160,10 +182,10 @@ app.post('/api/predict', async (req, res) => {
 // Helper function to call Python prediction script
 function predictImages(images) {
     return new Promise((resolve, reject) => {
-        const pythonScript = path.join(__dirname, 'predict_images.py');
+        const shellScript = path.join(__dirname, 'run_prediction.sh');
         const imageList = JSON.stringify(images);
         
-        const python = spawn('python', [pythonScript, imageList]);
+        const python = spawn('bash', [shellScript, imageList]);
         
         let dataString = '';
         
@@ -193,8 +215,14 @@ function predictImages(images) {
 // Get prediction history
 app.get('/api/predictions', async (req, res) => {
     try {
-        const predictions = await ImagePrediction.find().sort({ timestamp: -1 });
-        res.json({ predictions });
+        if (mongoAvailable) {
+            const predictions = await ImagePrediction.find().sort({ timestamp: -1 });
+            res.json({ predictions });
+        } else {
+            // Return from memory
+            const sortedPredictions = inMemoryPredictions.sort((a, b) => b.timestamp - a.timestamp);
+            res.json({ predictions: sortedPredictions });
+        }
     } catch (error) {
         console.error('Error getting predictions:', error);
         res.status(500).json({ error: 'Failed to get predictions' });
@@ -213,8 +241,12 @@ app.delete('/api/clear', async (req, res) => {
             });
         }
         
-        // Clear database
-        await ImagePrediction.deleteMany({});
+        // Clear database or memory
+        if (mongoAvailable) {
+            await ImagePrediction.deleteMany({});
+        } else {
+            inMemoryPredictions = [];
+        }
         
         res.json({ message: 'All data cleared successfully' });
     } catch (error) {
