@@ -109,3 +109,4 @@ coverage.xml
 *.cover
 .pytest_cache/
 /Images
+CLAUDE 2.md
