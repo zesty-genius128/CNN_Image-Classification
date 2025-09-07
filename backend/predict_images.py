@@ -16,16 +16,25 @@ CIFAR10_CLASSES = [
 def load_best_model():
     """Load the best trained model"""
     try:
-        # Try to load the newly trained model first
+        # Try to load the optimized model first (best hyperparameters from 6-hour search)
+        model_path = os.path.join(os.path.dirname(__file__), '..', 'ml_models', 'optimized_cnn_model.h5')
+        if os.path.exists(model_path):
+            model = keras.models.load_model(model_path)
+            print("✅ Loaded optimized CNN model (83.74% target accuracy)")
+            return model
+        
+        # Fallback to cifar10_cnn_model.h5 (81.25% accuracy)
         model_path = os.path.join(os.path.dirname(__file__), '..', 'ml_models', 'cifar10_cnn_model.h5')
         if os.path.exists(model_path):
             model = keras.models.load_model(model_path)
+            print("⚠️  Using fallback model (81.25% accuracy)")
             return model
         
-        # Fallback to best_cnn_model.h5
+        # Final fallback to best_cnn_model.h5
         model_path = os.path.join(os.path.dirname(__file__), '..', 'ml_models', 'best_cnn_model.h5')
         if os.path.exists(model_path):
             model = keras.models.load_model(model_path)
+            print("⚠️  Using older model")
             return model
         else:
             # If no saved model, create a default model (this should not happen in production)
